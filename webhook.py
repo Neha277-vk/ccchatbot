@@ -69,15 +69,20 @@ def webhook():
         # 🔹 Intent 1: Currency Conversion
         if intent_name in ["convert_currency", "currency_converter"]:
             parameters = req['queryResult']['parameters']
-            unit_currency = parameters.get('unit-currency')
-            to_currency = parameters.get('currency-name')
+            unit_currency = parameters.get('unit-currency', [])
+            to_currency = parameters.get('currency-name', [])
 
-            if not unit_currency or 'currency' not in unit_currency or 'amount' not in unit_currency:
+            # Ensure unit_currency and to_currency have valid data
+            if not unit_currency or not isinstance(unit_currency[0], dict) or 'currency' not in unit_currency[0] or 'amount' not in unit_currency[0]:
                 return jsonify({'fulfillmentText': "Invalid input. Please provide a valid currency and amount."})
 
-            from_currency = unit_currency['currency'].upper()
-            amount = unit_currency['amount']
-            to_currency = to_currency.upper()
+            from_currency = unit_currency[0]['currency'].upper()
+            amount = unit_currency[0]['amount']
+            to_currency = to_currency[0].upper() if to_currency else ""
+
+            # Handle missing to_currency
+            if not to_currency:
+                return jsonify({'fulfillmentText': "Please specify a target currency for conversion."})
 
             print(f"Converting {amount} {from_currency} to {to_currency}")
 
@@ -102,7 +107,11 @@ def webhook():
 
         # 🔹 Intent 2: Get Country Currency Name
         elif intent_name == "get_country_currency":
-            country_name = req['queryResult']['parameters'].get('geo-country', '').strip().lower()
+            country_name = req['queryResult']['parameters'].get('geo-country', [])
+            if not country_name:
+                return jsonify({'fulfillmentText': "Sorry, I couldn't find the country name in your query."})
+
+            country_name = country_name[0].strip().lower()  # Handle list properly
 
             # Handle Common Misspellings
             country_name = country_name.replace("maxico", "mexico").replace("south corea", "south korea")
@@ -123,4 +132,3 @@ def webhook():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
