@@ -10,10 +10,34 @@ with open("country_currency.json", "r", encoding="utf-8") as cc_file:
 
 # Load transfer fee data
 with open("transfer_fees.json", "r", encoding="utf-8") as fee_file:
-    transfer_fees = json.load(fee_file)
+    raw_fees = json.load(fee_file)
+    transfer_fees = {k.upper(): v for k, v in raw_fees.items()}
 
 # ExchangeRate API key
 EXCHANGE_RATE_API_KEY = "e54e536172dfb19b340c6fea"
+
+
+def get_cleaned_param(params, key, transform=None):
+    value = params.get(key)
+
+    # If it's a list, get the first non-empty element
+    if isinstance(value, list):
+        value = value[0] if value else None
+
+    # If still None or empty
+    if not value:
+        return None
+
+    # Apply transformation like .upper(), .lower(), .title()
+    if transform == "upper":
+        return value.upper()
+    elif transform == "lower":
+        return value.lower()
+    elif transform == "title":
+        return value.title()
+
+    return value
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -85,15 +109,28 @@ def handle_get_country_currency(req):
 
 # Intent: Get Transfer Info
 def handle_get_transfer_info(req):
-
     parameters = req["queryResult"]["parameters"]
 
-    # Fix: Use correct parameter keys
-    source_currency = parameters.get("currency-name", "").upper()
-    target_currency = parameters.get("currency-name1", "").upper()
+    # Extract normally
+    source_currency = get_cleaned_param(parameters, "currency-name", "upper")
+    target_currency = get_cleaned_param(parameters, "currency-name1", "upper")
 
-    pair_key = f"{source_currency} to {target_currency}"
-    print(f"Looking for transfer fee for: {pair_key}")
+    # Special case: both currencies are in "currency-name" (e.g. ["USD", "INR"])
+    currency_list = parameters.get("currency-name", [])
+    if isinstance(currency_list, list) and len(currency_list) == 2:
+        source_currency = currency_list[0].upper()
+        target_currency = currency_list[1].upper()
+
+    print("Cleaned source:", source_currency)
+    print("Cleaned target:", target_currency)
+
+    if not source_currency or not target_currency:
+        return jsonify({
+            "fulfillmentText": "Please provide both source and target currencies for the transfer."
+        })
+
+    pair_key = f"{source_currency} to {target_currency}".upper()
+    print("Looking for fee for:", pair_key)
 
     fee = transfer_fees.get(pair_key)
 
