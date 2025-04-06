@@ -15,6 +15,7 @@ with open("transfer_fees.json", "r", encoding="utf-8") as fee_file:
 
 # ExchangeRate API key
 EXCHANGE_RATE_API_KEY = "e54e536172dfb19b340c6fea"
+NEWS_API_KEY = "1082e2b1f6d7415d80cb322101bdb0dc"
 
 
 def get_cleaned_param(params, key, transform=None):
@@ -37,6 +38,36 @@ def get_cleaned_param(params, key, transform=None):
         return value.title()
 
     return value
+def get_forex_news(query="forex OR currency OR exchange rate", language="en"):
+    url = f"https://newsdata.io/api/1/news?apikey={NEWS_API_KEY}&q={query}&language={language}&category=business"
+
+    response = requests.get(url)
+    data = response.json()
+
+    if data.get("status") != "success":
+        raise Exception("Failed to fetch news.")
+
+    articles = data.get("results", [])[:3]  # Get top 3 headlines
+    if not articles:
+        return "Sorry, no recent Forex news was found."
+
+    news_list = [f"🔹 {article['title']} ({article['source_id']})" for article in articles]
+    return "\n\n".join(news_list)
+def handle_forex_news(req):
+    params = req["queryResult"]["parameters"]
+    currency = get_cleaned_param(params, "currency-name", "upper")
+
+    try:
+        query = currency if currency else "forex OR currency OR exchange rate"
+        news_text = get_forex_news(query=query)
+        return jsonify({
+            "fulfillmentText": f"📰 Here are the latest news headlines about {currency if currency else 'Forex'}:\n\n{news_text}"
+        })
+    except Exception as e:
+        print("News fetch error:", e)
+        return jsonify({
+            "fulfillmentText": "⚠️ Sorry, I couldn’t fetch news at the moment. Please try again later."
+        })
 
 
 @app.route("/webhook", methods=["POST"])
@@ -52,8 +83,11 @@ def webhook():
             return handle_get_country_currency(req)
         elif intent == "get_transfer_info":
             return handle_get_transfer_info(req)
+        elif intent == "get_forex_news":
+              return handle_forex_news(req)
         else:
             return jsonify({"fulfillmentText": "I'm not sure how to help with that."})
+
 
     except Exception as e:
         print(f"Error occurred: {e}")
@@ -142,6 +176,26 @@ def handle_get_transfer_info(req):
         return jsonify({
             "fulfillmentText": f"Sorry, I couldn't find transfer fee details for {source_currency} to {target_currency}."
         })
+
+    def get_forex_news(query="forex OR currency OR exchange rate", language="en"):
+        url = f"https://newsapi.org/v2/everything?q={query}&language={language}&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
+
+        response = requests.get(url)
+        data = response.json()
+
+        if data.get("status") != "ok":
+            raise Exception("News API failed.")
+
+        articles = data.get("articles", [])[:3]  # top 3 articles
+        if not articles:
+            return "Sorry, I couldn't find any recent Forex news."
+
+        news_list = [f"🔹 {article['title']} ({article['source']['name']})" for article in articles]
+        return "\n\n".join(news_list)
+
+
+
+
 
 
 if __name__ == "__main__":
