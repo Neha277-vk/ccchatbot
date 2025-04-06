@@ -44,30 +44,35 @@ def get_forex_news(query="forex OR currency OR exchange rate", language="en"):
     response = requests.get(url)
     data = response.json()
 
-    if data.get("status") != "success":
-        raise Exception("Failed to fetch news.")
+    print("🔍 Raw News API Response:", json.dumps(data, indent=2))  # Debugging line
 
-    articles = data.get("results", [])[:3]  # Get top 3 headlines
+    if data.get("status") != "success":
+        raise Exception(f"News API failed: {data.get('message', 'Unknown error')}")
+
+    articles = data.get("results", [])[:3]  # Top 3 headlines
     if not articles:
         return "Sorry, no recent Forex news was found."
 
     news_list = [f"🔹 {article['title']} ({article['source_id']})" for article in articles]
     return "\n\n".join(news_list)
+
 def handle_forex_news(req):
     params = req["queryResult"]["parameters"]
     currency = get_cleaned_param(params, "currency-name", "upper")
 
     try:
-        query = currency if currency else "forex OR currency OR exchange rate"
+        query = f"{currency} forex OR exchange rate" if currency else "forex OR currency OR exchange rate"
         news_text = get_forex_news(query=query)
+
         return jsonify({
             "fulfillmentText": f"📰 Here are the latest news headlines about {currency if currency else 'Forex'}:\n\n{news_text}"
         })
     except Exception as e:
-        print("News fetch error:", e)
+        print("❌ News fetch error:", e)
         return jsonify({
             "fulfillmentText": "⚠️ Sorry, I couldn’t fetch news at the moment. Please try again later."
         })
+
 
 
 @app.route("/webhook", methods=["POST"])
@@ -177,21 +182,6 @@ def handle_get_transfer_info(req):
             "fulfillmentText": f"Sorry, I couldn't find transfer fee details for {source_currency} to {target_currency}."
         })
 
-    def get_forex_news(query="forex OR currency OR exchange rate", language="en"):
-        url = f"https://newsapi.org/v2/everything?q={query}&language={language}&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
-
-        response = requests.get(url)
-        data = response.json()
-
-        if data.get("status") != "ok":
-            raise Exception("News API failed.")
-
-        articles = data.get("articles", [])[:3]  # top 3 articles
-        if not articles:
-            return "Sorry, I couldn't find any recent Forex news."
-
-        news_list = [f"🔹 {article['title']} ({article['source']['name']})" for article in articles]
-        return "\n\n".join(news_list)
 
 
 
