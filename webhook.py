@@ -1,134 +1,111 @@
 from flask import Flask, request, jsonify
 import requests
+import json
 
 app = Flask(__name__)
 
-# Your ExchangeRate API Key
-API_KEY = "e54e536172dfb19b340c6fea"  # Replace with your actual API key
-BASE_URL = f"https://v6.exchangerate-api.com/v6/{API_KEY}/latest/"
+# Load country-currency mappings
+with open("country_currency.json", "r", encoding="utf-8") as cc_file:
+    country_currency = json.load(cc_file)
 
-# Country-to-Currency Mapping (Case Insensitive)
-country_currency = {
-    "afghanistan": "Afghan Afghani (AFN)",
-    "albania": "Albanian Lek (ALL)",
-    "algeria": "Algerian Dinar (DZD)",
-    "andorra": "Euro (EUR)",
-    "angola": "Angolan Kwanza (AOA)",
-    "argentina": "Argentine Peso (ARS)",
-    "armenia": "Armenian Dram (AMD)",
-    "australia": "Australian Dollar (AUD)",
-    "austria": "Euro (EUR)",
-    "azerbaijan": "Azerbaijani Manat (AZN)",
-    "bangladesh": "Bangladeshi Taka (BDT)",
-    "brazil": "Brazilian Real (BRL)",
-    "canada": "Canadian Dollar (CAD)",
-    "china": "Chinese Yuan (CNY)",
-    "denmark": "Danish Krone (DKK)",
-    "egypt": "Egyptian Pound (EGP)",
-    "france": "Euro (EUR)",
-    "germany": "Euro (EUR)",
-    "india": "Indian Rupee (INR)",
-    "indonesia": "Indonesian Rupiah (IDR)",
-    "iran": "Iranian Rial (IRR)",
-    "iraq": "Iraqi Dinar (IQD)",
-    "israel": "Israeli New Shekel (ILS)",
-    "italy": "Euro (EUR)",
-    "japan": "Japanese Yen (JPY)",
-    "kenya": "Kenyan Shilling (KES)",
-    "south korea": "South Korean Won (KRW)",
-    "mexico": "Mexican Peso (MXN)",
-    "nepal": "Nepalese Rupee (NPR)",
-    "netherlands": "Euro (EUR)",
-    "norway": "Norwegian Krone (NOK)",
-    "pakistan": "Pakistani Rupee (PKR)",
-    "philippines": "Philippine Peso (PHP)",
-    "poland": "Polish Zloty (PLN)",
-    "portugal": "Euro (EUR)",
-    "qatar": "Qatari Riyal (QAR)",
-    "russia": "Russian Ruble (RUB)",
-    "saudi arabia": "Saudi Riyal (SAR)",
-    "south africa": "South African Rand (ZAR)",
-    "spain": "Euro (EUR)",
-    "sweden": "Swedish Krona (SEK)",
-    "switzerland": "Swiss Franc (CHF)",
-    "thailand": "Thai Baht (THB)",
-    "turkey": "Turkish Lira (TRY)",
-    "united arab emirates": "UAE Dirham (AED)",
-    "united kingdom": "Pound Sterling (GBP)",
-    "united states": "US Dollar (USD)",
-    "vietnam": "Vietnamese Dong (VND)"
-}
+# Load transfer fee data
+with open("transfer_fees.json", "r", encoding="utf-8") as fee_file:
+    transfer_fees = json.load(fee_file)
 
-@app.route('/webhook', methods=['POST'])
+# ExchangeRate API key
+EXCHANGE_RATE_API_KEY = "e54e536172dfb19b340c6fea"
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         req = request.get_json()
-        intent_name = req['queryResult']['intent']['displayName']
-        print("Received Intent:", intent_name)
+        print("Received request:", json.dumps(req, indent=2))
+        intent = req["queryResult"]["intent"]["displayName"]
 
-        # 🔹 Intent 1: Currency Conversion
-        if intent_name in ["convert_currency", "currency_converter"]:
-            parameters = req['queryResult']['parameters']
-            unit_currency = parameters.get('unit-currency', [])
-            to_currency = parameters.get('currency-name', [])
-
-            # Ensure unit_currency and to_currency have valid data
-            if not unit_currency or not isinstance(unit_currency[0], dict) or 'currency' not in unit_currency[0] or 'amount' not in unit_currency[0]:
-                return jsonify({'fulfillmentText': "Invalid input. Please provide a valid currency and amount."})
-
-            from_currency = unit_currency[0]['currency'].upper()
-            amount = unit_currency[0]['amount']
-            to_currency = to_currency[0].upper() if to_currency else ""
-
-            # Handle missing to_currency
-            if not to_currency:
-                return jsonify({'fulfillmentText': "Please specify a target currency for conversion."})
-
-            print(f"Converting {amount} {from_currency} to {to_currency}")
-
-            response = requests.get(BASE_URL + from_currency)
-            if response.status_code != 200:
-                print("API Error:", response.text)
-                return jsonify({'fulfillmentText': "Failed to fetch exchange rates. Please try again later."})
-
-            exchange_data = response.json()
-            print("API Response:", exchange_data)
-
-            if not exchange_data or 'conversion_rates' not in exchange_data:
-                return jsonify({'fulfillmentText': "Failed to fetch valid exchange rates. Please try again later."})
-
-            rate = exchange_data['conversion_rates'].get(to_currency)
-            if rate is None:
-                return jsonify({'fulfillmentText': f"Exchange rate for {to_currency} is not available."})
-
-            converted_amount = amount * rate
-            result_text = f"{amount} {from_currency} is equal to {converted_amount:.2f} {to_currency}."
-            return jsonify({'fulfillmentText': result_text})
-
-        # 🔹 Intent 2: Get Country Currency Name
-        elif intent_name == "get_country_currency":
-            country_name = req['queryResult']['parameters'].get('geo-country', [])
-            if not country_name:
-                return jsonify({'fulfillmentText': "Sorry, I couldn't find the country name in your query."})
-
-            country_name = country_name[0].strip().lower()  # Handle list properly
-
-            # Handle Common Misspellings
-            country_name = country_name.replace("maxico", "mexico").replace("south corea", "south korea")
-
-            currency = country_currency.get(country_name, None)
-
-            if currency:
-                return jsonify({'fulfillmentText': f"The currency of {country_name.title()} is {currency}."})
-            else:
-                return jsonify({'fulfillmentText': "Sorry, I don't have currency information for this country."})
-
+        if intent == "currency_converter":
+            return handle_currency_converter(req)
+        elif intent == "get_country_currency":
+            return handle_get_country_currency(req)
+        elif intent == "get_transfer_info":
+            return handle_get_transfer_info(req)
         else:
-            return jsonify({'fulfillmentText': "Intent not recognized by webhook."})
+            return jsonify({"fulfillmentText": "I'm not sure how to help with that."})
 
     except Exception as e:
-        print("Error:", str(e))
-        return jsonify({'fulfillmentText': f"An error occurred: {str(e)}"})
+        print(f"Error occurred: {e}")
+        return jsonify({"fulfillmentText": f"An error occurred: {str(e)}"})
 
-if __name__ == '__main__':
+# Intent: Convert Currency
+def handle_currency_converter(req):
+    parameters = req["queryResult"]["parameters"]
+    from_currency = parameters["unit-currency"][0]["currency"]
+    amount = float(parameters["unit-currency"][0]["amount"])
+    to_currency = parameters["currency-name"][0] if isinstance(parameters["currency-name"], list) else parameters["currency-name"]
+
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/pair/{from_currency}/{to_currency}"
+    response = requests.get(url)
+    data = response.json()
+
+    if data["result"] == "success":
+        rate = data["conversion_rate"]
+        converted_amount = round(rate * amount, 2)
+        return jsonify({
+            "fulfillmentText": f"{amount} {from_currency} is equal to {converted_amount} {to_currency}."
+        })
+    else:
+        return jsonify({
+            "fulfillmentText": "Sorry, I couldn't fetch the exchange rate right now."
+        })
+
+# Intent: Get Country Currency
+def handle_get_country_currency(req):
+        parameters = req["queryResult"]["parameters"]
+        countries = parameters.get("geo-country", [])
+
+        country = countries[0] if isinstance(countries, list) and countries else countries
+        original_country = country
+        country = country.strip().lower()
+
+        print(f"Looking for country: '{country}'")
+
+        currency_info = country_currency.get(country)
+
+        if currency_info:
+            return jsonify({
+                "fulfillmentText": f"The currency of {original_country} is {currency_info}."
+            })
+        else:
+            return jsonify({
+                "fulfillmentText": f"Sorry, I couldn't find the currency information for {original_country}."
+                           })
+
+            return jsonify({
+                      "fulfillmentText": "Sorry, I couldn't process your request."
+                })
+
+# Intent: Get Transfer Info
+def handle_get_transfer_info(req):
+
+    parameters = req["queryResult"]["parameters"]
+
+    # Fix: Use correct parameter keys
+    source_currency = parameters.get("currency-name", "").upper()
+    target_currency = parameters.get("currency-name1", "").upper()
+
+    pair_key = f"{source_currency} to {target_currency}"
+    print(f"Looking for transfer fee for: {pair_key}")
+
+    fee = transfer_fees.get(pair_key)
+
+    if fee:
+        return jsonify({
+            "fulfillmentText": f"The transfer fee from {source_currency} to {target_currency} is {fee} USD."
+        })
+    else:
+        return jsonify({
+            "fulfillmentText": f"Sorry, I couldn't find transfer fee details for {source_currency} to {target_currency}."
+        })
+
+
+if __name__ == "__main__":
     app.run(debug=True)
